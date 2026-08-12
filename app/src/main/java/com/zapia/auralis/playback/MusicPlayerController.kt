@@ -28,6 +28,7 @@ class MusicPlayerController(context: Context) {
     val repeat: StateFlow<Int> = _repeat.asStateFlow()
     private var tracks: List<AudioTrack> = emptyList()
     private var equalizer: Equalizer? = null
+    private var equalizerSessionId: Int = 0
     private val mediaSession = MediaSession.Builder(context.applicationContext, player).setId("AuralisSession").build()
     private val _volume = MutableStateFlow(1f)
     val volume: StateFlow<Float> = _volume.asStateFlow()
@@ -38,6 +39,7 @@ class MusicPlayerController(context: Context) {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { _currentIndex.value = player.currentMediaItemIndex }
             override fun onAudioSessionIdChanged(audioSessionId: Int) { attachEqualizer(audioSessionId) }
         })
+        attachEqualizer(player.audioSessionId)
     }
 
     fun setQueue(items: List<AudioTrack>) {
@@ -75,19 +77,24 @@ class MusicPlayerController(context: Context) {
 
     private fun attachEqualizer(sessionId: Int) {
         if (sessionId <= 0) return
+        if (equalizerSessionId == sessionId && equalizer != null) return
         try {
             equalizer?.release()
             equalizer = Equalizer(0, sessionId).apply { enabled = true }
-        } catch (_: Throwable) { equalizer = null }
+            equalizerSessionId = sessionId
+        } catch (_: Throwable) {
+            equalizer = null
+            equalizerSessionId = 0
+        }
     }
 
     fun hasEqualizer(): Boolean = equalizer != null
     fun equalizerBandCount(): Int = equalizer?.numberOfBands?.toInt() ?: 5
     fun equalizerBandRange(): IntArray = equalizer?.bandLevelRange?.map { it.toInt() }?.toIntArray() ?: intArrayOf(-1500, 1500)
-    fun bandLevel(band: Int): Short = equalizer?.getBandLevel(band.toShort()) ?: 0
+    fun bandLevel(band: Int): Short = try { equalizer?.getBandLevel(band.toShort()) ?: 0 } catch (_: Throwable) { 0 }
     fun setBandLevel(band: Int, value: Short) { try { equalizer?.setBandLevel(band.toShort(), value) } catch (_: Throwable) {} }
     fun presetNames(): List<String> = try { equalizer?.let { eq -> (0 until eq.numberOfPresets.toInt()).map { eq.getPresetName(it.toShort()).toString() } } ?: emptyList() } catch (_: Throwable) { emptyList() }
     fun usePreset(index: Int) { try { equalizer?.usePreset(index.toShort()) } catch (_: Throwable) {} }
 
-    fun release() { equalizer?.release(); equalizer = null; mediaSession.release(); player.release() }
+    fun release() { equalizer?.release(); equalizer = null; equalizerSessionId = 0; mediaSession.release(); player.release() }
 }
