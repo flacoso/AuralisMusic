@@ -33,12 +33,13 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +53,7 @@ import com.zapia.auralis.data.MusicRepository
 import com.zapia.auralis.data.UserPrefs
 import com.zapia.auralis.playback.MusicPlayerController
 import com.zapia.auralis.ui.theme.AuralisTheme
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private lateinit var controller: MusicPlayerController
@@ -72,9 +74,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setContentView() {
-        setContent {
-            AuralisApp(controller, repository, prefs)
-        }
+        setContent { AuralisApp(controller, repository, prefs) }
     }
 
     override fun onDestroy() {
@@ -89,6 +89,9 @@ private fun AuralisApp(controller: MusicPlayerController, repository: MusicRepos
     var tab by remember { mutableIntStateOf(0) }
     var dark by remember { mutableStateOf(prefs.isDarkTheme()) }
     var selected by remember { mutableStateOf<AudioTrack?>(null) }
+    var showEqualizer by remember { mutableStateOf(false) }
+    var showSleepTimer by remember { mutableStateOf(false) }
+    var sleepRemaining by remember { mutableStateOf<Long?>(null) }
     val playing by controller.isPlaying.collectAsStateWithLifecycle()
     val currentIndex by controller.currentIndex.collectAsStateWithLifecycle()
     val shuffle by controller.shuffle.collectAsStateWithLifecycle()
@@ -102,6 +105,13 @@ private fun AuralisApp(controller: MusicPlayerController, repository: MusicRepos
     }
     if (currentIndex in tracks.indices) selected = tracks[currentIndex]
 
+    LaunchedEffect(sleepRemaining) {
+        val minutes = sleepRemaining ?: return@LaunchedEffect
+        delay(minutes * 60_000L)
+        controller.stop()
+        sleepRemaining = null
+    }
+
     AuralisTheme(darkTheme = dark) {
         Scaffold(
             bottomBar = {
@@ -114,10 +124,13 @@ private fun AuralisApp(controller: MusicPlayerController, repository: MusicRepos
         ) { padding ->
             when (tab) {
                 0 -> LibraryScreen(Modifier.padding(padding), tracks, selected, favoriteIds, { track -> controller.playAt(tracks.indexOf(track)); selected = track; tab = 1 }, { id -> favoriteIds = favoriteIds.toMutableSet().also { if (!it.add(id)) it.remove(id) }; prefs.toggleFavorite(id) })
-                1 -> NowPlayingScreen(Modifier.padding(padding).fillMaxSize(), selected, playing, controller.progressMs(), controller, shuffle, repeat, volume, selected?.id in favoriteIds, { selected?.let { favoriteIds = favoriteIds.toMutableSet().also { set -> if (!set.add(it.id)) set.remove(it.id) }; prefs.toggleFavorite(it.id) } }, {})
-                else -> SettingsScreen(Modifier.padding(padding).fillMaxSize(), tracks.size, dark, { dark = it; prefs.setDarkTheme(it) }, prefs.playlistNames(), prefs::createPlaylist, null, {}, {}, {})
+                1 -> NowPlayingScreen(Modifier.padding(padding).fillMaxSize(), selected, playing, controller.progressMs(), controller, shuffle, repeat, volume, selected?.id in favoriteIds, { selected?.let { favoriteIds = favoriteIds.toMutableSet().also { set -> if (!set.add(it.id)) set.remove(it.id) }; prefs.toggleFavorite(it.id) } }, { showEqualizer = true })
+                else -> SettingsScreen(Modifier.padding(padding).fillMaxSize(), tracks.size, dark, { dark = it; prefs.setDarkTheme(it) }, prefs.playlistNames(), prefs::createPlaylist, sleepRemaining, { sleepRemaining = it }, { showEqualizer = true }, { showSleepTimer = true })
             }
         }
+
+        if (showEqualizer) EqualizerDialog(controller) { showEqualizer = false }
+        if (showSleepTimer) SleepTimerDialog(sleepRemaining, { sleepRemaining = it; showSleepTimer = false }, { sleepRemaining = null; showSleepTimer = false })
     }
 }
 
@@ -151,7 +164,12 @@ private fun LibraryScreen(modifier: Modifier, tracks: List<AudioTrack>, selected
 @Composable
 fun AlbumArt(track: AudioTrack, size: Dp, modifier: Modifier = Modifier) {
     val brush = Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.surfaceVariant))
-    Column(modifier.size(size).clip(RoundedCornerShape(18.dp)).background(brush), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Icon(Icons.Default.MusicNote, null, tint = Color.Black.copy(alpha = 0.65f), modifier = Modifier.size(size / 2.5f))
-    }
+    coil.compose.AsyncImage(
+        model = track.albumArtUri,
+        contentDescription = "Carátula de ${track.album}",
+        modifier = modifier.size(size).clip(RoundedCornerShape(18.dp)),
+        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        placeholder = androidx.compose.ui.graphics.painter.ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
+        error = androidx.compose.ui.graphics.painter.ColorPainter(MaterialTheme.colorScheme.surfaceVariant)
+    )
 }
