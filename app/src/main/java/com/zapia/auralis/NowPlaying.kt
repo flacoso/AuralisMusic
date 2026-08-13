@@ -38,7 +38,12 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +55,7 @@ import androidx.media3.common.Player
 import com.zapia.auralis.data.AudioTrack
 import com.zapia.auralis.data.asTime
 import com.zapia.auralis.playback.MusicPlayerController
+import kotlinx.coroutines.delay
 
 @Composable
 fun NowPlayingScreen(modifier: Modifier, track: AudioTrack?, playing: Boolean, progress: Long, controller: MusicPlayerController, shuffle: Boolean, repeat: Int, volume: Float, favorite: Boolean, toggleFavorite: () -> Unit, openEq: () -> Unit) {
@@ -57,6 +63,21 @@ fun NowPlayingScreen(modifier: Modifier, track: AudioTrack?, playing: Boolean, p
         Column(modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { Text("Elige una canción para empezar", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
         return
     }
+
+    var currentPosition by remember(track.id) { mutableLongStateOf(progress.coerceAtLeast(0L)) }
+    var dragging by remember { mutableStateOf(false) }
+    val duration = controller.durationMs().coerceAtLeast(1L)
+
+    LaunchedEffect(playing, track.id) {
+        while (true) {
+            if (!dragging) {
+                controller.updateProgress()
+                currentPosition = controller.progressMs()
+            }
+            delay(250L)
+        }
+    }
+
     val spin = rememberInfiniteTransition(label = "albumSpin").animateFloat(0f, 360f, infiniteRepeatable(tween(12000), RepeatMode.Restart), label = "albumRotation")
     Column(modifier.padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(24.dp))
@@ -67,8 +88,18 @@ fun NowPlayingScreen(modifier: Modifier, track: AudioTrack?, playing: Boolean, p
         Text(track.album, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         IconButton(onClick = toggleFavorite) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, "Favorito", tint = if (favorite) Color(0xFFFF7597) else MaterialTheme.colorScheme.onSurfaceVariant) }
         Spacer(Modifier.height(12.dp))
-        Slider(value = progress.toFloat().coerceIn(0f, controller.durationMs().coerceAtLeast(1).toFloat()), onValueChange = { controller.seekTo(it.toLong()) }, valueRange = 0f..controller.durationMs().coerceAtLeast(1).toFloat(), modifier = Modifier.fillMaxWidth())
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(progress.asTime(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Text(controller.durationMs().asTime(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+
+        Slider(
+            value = currentPosition.toFloat().coerceIn(0f, duration.toFloat()),
+            onValueChange = { value -> dragging = true; currentPosition = value.toLong() },
+            onValueChangeFinished = { controller.seekTo(currentPosition); dragging = false },
+            valueRange = 0f..duration.toFloat(),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(currentPosition.asTime(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(duration.asTime(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.VolumeUp, "Volumen", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)); Slider(value = volume, onValueChange = controller::setVolume, modifier = Modifier.weight(1f)) }
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
