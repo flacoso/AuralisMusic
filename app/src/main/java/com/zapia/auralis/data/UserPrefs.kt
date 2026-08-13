@@ -30,4 +30,10 @@ class UserPrefs(context: Context) {
         ids.add(id)
         prefs.edit().putStringSet("playlist_$name", ids.map(Long::toString).toSet()).apply()
     }
+
+    fun savePlayback(index: Int, positionMs: Long) {
+        prefs.edit().putInt("last_track_index", index).putLong("last_position_ms", positionMs.coerceAtLeast(0L)).apply()
+    }
+    fun lastTrackIndex(): Int = prefs.getInt("last_track_index", -1)
+    fun lastPositionMs(): Long = prefs.getLong("last_position_ms", 0L).coerceAtLeast(0L)
 }
